@@ -248,6 +248,17 @@ void dofindpath(struct onak_dbctx *dbctx,
 				curkey = findinhash(curkey->parent);
 			}
 			putchar('\n');
+
+			/*
+			 * A one-step path is the signature itself: there is no
+			 * key between the two to disable, so the next round
+			 * walks the very same edge and prints the very same
+			 * path. Looking for a second path only means something
+			 * once there is an intermediate key to route around.
+			 */
+			if (keyinfoa->colour == 1) {
+				pathnum = count;
+			}
 		}
 		pathnum++;
 	}

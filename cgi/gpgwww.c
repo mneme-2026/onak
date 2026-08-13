@@ -47,9 +47,9 @@ int parsecgistuff(char **cgiparams, uint64_t *from, uint64_t *to)
 		i = 0;
 		while (cgiparams[i] != NULL) {
 			if (!strcmp(cgiparams[i], "to")) {
-				*to = strtoul(cgiparams[i+1], NULL, 16);
+				*to = strtoull(cgiparams[i+1], NULL, 16);
 			} else if (!strcmp(cgiparams[i], "from")) {
-				*from = strtoul(cgiparams[i+1], NULL, 16);
+				*from = strtoull(cgiparams[i+1], NULL, 16);
 			} else if (!strcmp(cgiparams[i], "op")) {
 				if (!strcmp(cgiparams[i+1], "get")) {
 					op = OP_GET;
@@ -115,6 +115,13 @@ int getkeyspath(struct onak_dbctx *dbctx,
 				}
 				curkey = findinhash(curkey->parent);
 			}
+		}
+		/*
+		 * Same as dofindpath(): a one-step path has no key in the
+		 * middle to disable, so asking for another finds the same one.
+		 */
+		if (keyinfoa->colour == 1) {
+			pathlen = count;
 		}
 		pathlen++;
 	}
