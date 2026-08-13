@@ -32,8 +32,26 @@
 #include "mem.h"
 #include "onak-conf.h"
 
-void doerror(char *error)
+/*
+ * The largest request we will read, in bytes.
+ *
+ * A reconciliation request is an array of 16 byte hashes, so a mebibyte
+ * holds some sixty thousand of them — far past what a peer ever sends. A
+ * ceiling is needed at all because the size below is what the client
+ * *claims* in Content-Length, believed and allocated before a single byte
+ * of the body has been read: without it, one request announcing two
+ * gigabytes gets two gigabytes.
+ */
+#define MAX_QUERY_SIZE (1024 * 1024)
+
+/*
+ * Every error also says so in the status line. They used to leave it at
+ * the default, so a refused request came back 200 OK with the refusal in
+ * the body — a caller has no way to tell that from an answer.
+ */
+void doerror(const char *status, char *error)
 {
+	printf("Status: %s\n", status);
 	printf("Content-Type: text/plain\n\n");
 	printf("%s", error);
 	cleanuplogthing();
@@ -55,22 +73,33 @@ int main(__unused int argc, __unused char *argv[])
 
 	request_method = getenv("REQUEST_METHOD");
 	if (request_method == NULL || strcmp(request_method, "POST") != 0) {
-		doerror("hashquery must be a HTTP POST request.\n");
+		doerror("405 Method Not Allowed",
+			"hashquery must be a HTTP POST request.\n");
 	}
 
 	env = getenv("CONTENT_LENGTH");
 	if ((env == NULL) || !(cgipostbuf.size = atoi(env))) {
-		doerror("Must provide a content length.\n");
+		doerror("411 Length Required",
+			"Must provide a content length.\n");
+	}
+
+	if (cgipostbuf.size > MAX_QUERY_SIZE) {
+		logthing(LOGTHING_NOTICE,
+			"Refused a %zu byte hashquery request (max %d).",
+			cgipostbuf.size, MAX_QUERY_SIZE);
+		doerror("413 Payload Too Large",
+			"Query too large.\n");
 	}
 
 	cgipostbuf.offset = 0;
 	cgipostbuf.buffer = malloc(cgipostbuf.size);
 	if (cgipostbuf.buffer == NULL) {
-		doerror("Couldn't allocate memory for query content.\n");
+		doerror("500 Internal Server Error",
+			"Couldn't allocate memory for query content.\n");
 	}
 
 	if (!fread(cgipostbuf.buffer, cgipostbuf.size, 1, stdin)) {
-		doerror("Couldn't read query.\n");
+		doerror("400 Bad Request", "Couldn't read query.\n");
 	}
 
 	hashes = (uint8_t **) unmarshal_array(buffer_fetchchar, &cgipostbuf,
@@ -82,25 +111,28 @@ int main(__unused int argc, __unused char *argv[])
 	cgipostbuf.size = cgipostbuf.offset = 0;
 
 	if (hashes == NULL) {
-		doerror("No hashes supplied.\n");
+		doerror("400 Bad Request", "No hashes supplied.\n");
 	}
 
 	found = 0;
 	keys = calloc(sizeof(struct openpgp_publickey *), count);
 	if (keys == NULL) {
-		doerror("Couldn't allocate memory for reply.\n");
+		doerror("500 Internal Server Error",
+			"Couldn't allocate memory for reply.\n");
 	}
 
 	catchsignals();
 	dbctx = config.dbinit(config.backend, false);
 
 	if (dbctx == NULL) {
-		doerror("Failed to open key database.");
+		doerror("500 Internal Server Error",
+			"Failed to open key database.");
 	}
 
 	if (dbctx->fetch_key_skshash == NULL) {
 		dbctx->cleanupdb(dbctx);
-		doerror("Can't fetch by skshash with this backend.");
+		doerror("501 Not Implemented",
+			"Can't fetch by skshash with this backend.");
 	}
 
 	for (i = 0; i < count; i++) {
